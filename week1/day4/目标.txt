@@ -1,0 +1,60 @@
+questions：
+    1. 左值 / 右值
+    2. 拷贝构造
+    3. 移动构造
+    4. std::move
+    5. 为什么 move 可以减少拷贝
+
+answers：
+    1.拷贝移动
+        拷贝：复制资源，源对象继续拥有资源
+        移动：转移资源，源对象放弃原资源
+    2.左值右值
+        左值：有明确身份，有名字，之后还能继续访问的对象
+        右值：临时值，或者被明确标记为可以去走资源的对象
+    3.三种常见引用
+        普通左值引用
+            Tensor& ref = a;
+        常量左值引用，既能绑定左值，也能绑定临时对象，而且不会拷贝
+            const Tensor& ref = a;
+            const Tensor& ref = Tensor(1024);
+        右值引用,主要用于绑定右值
+            Tensor&& ref = Tensor(1024);
+            Tensor&& ref = std::move(a);
+    4.拷贝构造函数
+        使用一个已有对象，创建一个新的同类型对象
+        形式 Tensor(const Tensor& other);
+        使用方法
+            Tensor a(1024);
+            Tensor b = a;  //等号右侧是同类型左值、左侧是未初始化新对象时，= 只是语法糖，编译器不会先生成空对象再赋值，而是直接用拷贝构造初始化。
+            Tensor c(a);
+        为什么参数是const Tensor& other
+            因为不修改源内容，所以用const；如果不用引用，源对象传给other，本身就需要复制一次，复制又要调用拷贝构造，就会递归调用
+        浅拷贝
+            编译器简单地逐个复制成员 data_ = other.data_;
+            a.data_ 和 b.data_会指向同一内存，析构时会double free
+        深拷贝
+            正确的拷贝构造要重新申请内存
+            Tensor(const Tensor& other):
+                size_(other.size_),
+                data_(other.size_ == 0 ? nullptr : new float[other.size_]){
+                    std::cout << "copy constructor\n";
+                    for (size_t i = 0; i < size_; ++i) {
+                        data_[i] = other.data_[i];
+                    }
+                }
+    5.移动构造函数
+        Tensor(Tensor&& other) noexcept;
+        使用一个临时对象或明确不再需要原内容的对象，创建新对象。
+        Tensor a(1024);
+        Tensor b = std::move(a);
+
+        Tensor(Tensor&& other) noexcept:
+            size_(other.size_),
+            data_(other.data_){
+                std::cout << "move constructor\n";
+                other.size_ = 0;
+                other.data_ = nullptr;
+            }
+        一定要置空原指针，不然会double free
+        移动不是让两个对象共享资源，而是新对象接管资源，旧对象放弃资源。
