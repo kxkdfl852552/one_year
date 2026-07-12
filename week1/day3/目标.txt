@@ -5,3 +5,213 @@ questions:
     4. 引用计数
     5. 循环引用
     6. RAII
+
+answers:
+    1.为什么需要智能指针
+        裸指针需要手动内存管理，很容易忘记释放，造成内存泄漏
+    2.RAII什么意思
+        RAII是资源获取即初始化的意思，把资源绑定到一个局部对象上，对象创建的时候获取资源，对象销毁时释放资源
+        智能指针就是依据RAII的思想，里面包装了一个裸指针，创建智能指针的时候构造，智能指针生命周期结束析构
+    3.unique_ptr
+        unique_ptr是独占式智能指针，同一时刻只能有一个unique_ptr指向同一块内存，不能复制，只能移动
+        调用方式：
+            unique_ptr<int> p1 = make_unique<int>(100);  //推荐
+            unique_ptr<int> p2(new int(200));  //不推荐，某些情况下会内存泄漏
+                内存泄漏的可能情况如下，new先分配了内存，compute_something抛异常，unique_ptr的构造执行不到，造成内存泄露;unique_ptr(new T)本身不是一定泄漏，而是在复杂表达式中，如果new完成后unique_ptr还没有接管资源，中间发生异常可能泄漏；make_unique的分配和构造在一个函数调用里，不会出现这个问题
+                下面的代码好像本身就有问题，unique_ptr<int>(new int(10))创建了，然后传参，unique_ptr<int>(new int(10))是临时对象（右值），编译器自动move
+                移动语义规则
+                    左值（有名字的变量）必须手动move
+                    右值（临时对象，字面量）直接调用移动构造
+                    void func(unique_ptr<int> a, int b){}
+                    int main(){
+                        func(unique_ptr<int>(new int(10)), compute_something());
+                    }
+        解引用方法和裸指针一样
+        不能复制 unique_ptr<int> p3 = p1;  //会报错
+        可以移动 unique_ptr<int> p4 = move(p1); //移动后p1变成空指针，不能再用
+        手动释放或重置
+            p4.reset();//释放后p4变空
+            p4.reset(new int(5)); //重置
+        取出裸指针 int *raw = p4.get()
+        释放所有权但不delete  int *raw = p4.release()  还需要自己delete raw
+        管理数组 unique_ptr<float []> arr = make_unique<float[]>(1024); 
+        作为函数参数/返回值 作为函数参数的时候，调用的时候要move，作为返回值的时候编译器自动优化，不用手动move
+        编译器显式禁用拷贝构造和拷贝赋值
+    4.shared_ptr
+        共享式智能指针，共享所有权，多个shared_ptr可以指向同一块内存，内部有引用计数统计有多少个持有者，最后一个持有者销毁时才释放内存
+        创建
+            shared_ptr<int> p1 = make_shared<int>(100);
+        复制
+            shared_ptr<int> p2 = p1;
+        查看引用计数
+            cout << p1.use_count();
+        释放
+            p2.reset()  //引用计数 -1，最后一个销毁才释放
+        底层原理
+            shared_ptr内部通常包含对象指针和控制块指针
+            控制块里有 强引用计数（shared_ptr的数量）  弱引用计数（weak_ptr的个数） 删除器（deleter）
+            每复制一个shared_ptr，强引用计数 +1 ；每销毁一个shared_ptr，强引用计数 -1
+            强引用计数降到 0 时，被管理对象销毁。所有强引用和弱引用都消失后，控制块销毁。具体弱计数的内部实现可能包含标准库使用的隐式计数。
+            推荐用make_shared，只分配一次内存；shared_ptr<T> p(new T)会分配两次；缺点是弱引用存在时，整块内存不能释放，make_shared是一次申请控制块和对象数据，不能单独释放，只有弱引用计数也为0，才能整块释放,对大对象不友好
+        循环引用
+            两个对象互相用shared_ptr指向对方，在下面例子里，a和b的计数都剩1，永远不释放，Node的析构也不能调用
+                class Node{
+                public:
+                    shared_ptr<Node> next;
+                };
+                int main(){
+                    shared_ptr<Node> a = make_shared<Node>();
+                    shared_ptr<Node> b = make_shared<Node>();
+                    a->next = b;
+                    b->next = a;
+                    return 0;
+                }
+            用weak_ptr修复循环引用，weak_ptr也指向同一个内存块，不增加强引用计数，
+                class Node{
+                public:
+                    weak_ptr<Node> next;
+                };
+                int main(){
+                    shared_ptr<Node> a = make_shared<Node>();
+                    shared_ptr<Node> b = make_shared<Node>();
+                    a->next = b;
+                    b->next = a;
+                    return 0;
+                }
+                在return之前，a和b都是 强引用=1 弱引用=1
+                return的时候的动作：
+                    实际析构顺序是构造顺序的反序
+                    b析构，b的强引用变成0，b.next生命周期结束，a的弱引用变成0
+                    a析构，a的强引用变成0，a.next生命周期结束，b的弱引用变成0
+                    a和b都是 强引用=0 弱引用=0，控制块和对象内存都释放
+    5.常见坑
+        同一个裸指针初始化多个shared_ptr,下面demo的p1和p2是两个独立控制块，会造成double free
+            int *raw = new int(10);
+            shared_ptr<int> p1(raw);
+            shared_ptr<int> p2(raw);
+        shared_ptr和unique_ptr get出来裸指针手动delete，会造成double free；
+        unique_ptr直接赋值裸指针
+            unique_ptr<int> p;
+            p = new int(10); //不允许隐式转换，赋值运算符不接受裸指针隐式转换，可以unique_ptr<int> p(new int(10));
+            p.reset(new int(10)) //可以这样
+        shared_ptr管理数组
+            c++ 17之前
+                shared_ptr<int> arr(new int[10]); //delete的时候是未定义行为
+                shared_ptr<int> arr(new int[10]，default_delete<int[]>()); //ok
+            c++ 17后
+                shared_ptr<int[]> arr(new int[10]);
+        this指针返回shared_ptr
+            用 this 直接构造 shared_ptr，会创建新的独立控制块，不知道外面已经有 shared_ptr 在管理这个对象了。 
+            class A {
+            public:
+                std::shared_ptr<A> get_self() {
+                    return std::shared_ptr<A>(this);
+                }
+            };
+            shared_ptr<A> p1 = make_shared<A>();
+            p2 = p1->get_self()
+            此时对于std::shared_ptr<A>(this)来说是用裸指针构造了一个新的shared_ptr，相当于p1和p2都是用的一个对象，但是不是一个控制块，会double free；
+            正确做法是使用enable_shared_from_this
+                class A : public enable_shared_from_this<A>{
+                public:
+                    std::shared_ptr<A> get_self() {
+                        return shared_from_this();
+                    }
+                }
+                shared_ptr<A> p1 = make_shared<A>();
+                p2 = p1->get_self()
+                这样p1和p2指向同一个内存块
+                enable_shared_from_this的原理为：
+                    enable_shared_from_this类内部有个weak_ptr<T> weak_this
+                    A是enable_shared_from_this的子类，会继承weak_this
+                    外部的 shared_ptr 在构造时检测到对象继承了 enable_shared_from_this，设置内部的 weak_this
+                    执行shared_from_this的时候，用weak_this构造一个shared_ptr来返回，这样p2和p1有一样的内存块
+                shared_from_this()的约束
+                    当前对象必须用shared_ptr来管理
+                    不能在构造函数里调用shared_from_this，因为是先构造，后初始化weak_this
+                    enable_shared_from_this 不能修复“同一裸指针创建多个独立 shared_ptr”这种错误。
+                c++17新增weak_from_this()，返回弱引用，使用前先lock检查
+                异步回调典型用法
+                    class A : public enable_shared_from_this<A>{
+                    public:
+                        void start(){
+                            auto self = shared_from_this();
+                            async_run([self]() {
+                                self->dosomething();
+                            });
+                        }
+                    }
+                    为什么这个代码不用this。异步对象执行时，对象可能已经销毁了，这样可以保证异步执行完之前对象仍然存在
+                捕获shared_ptr 可能造成循环引用，原因是对象直接或间接持有一个指向自己的强引用。
+                    class A : public enable_shared_from_this<A>{
+                    public:
+                        std::function<void()> callback;
+                        void init(){
+                            auto self = shared_from_this();
+                            callback = [self]() {
+                                self->dosomething();
+                            };
+                        }
+                    }
+                    调用init之后，还有callback里捕获的shared_ptr，此时就循环引用了，要析构需要先清除callback，要清除callback需要析构
+                    此时可以用weak_ptr
+                        class A : public enable_shared_from_this<A>{
+                        public:
+                            std::function<void()> callback;
+                            void init(){
+                                auto weak_self = weak_from_this();
+                                callback = [weak_self]() {
+                                    if(auto self = weak_self.lock())
+                                        self->dosomething();
+                                };
+                            }
+                        }
+                        使用 weak_ptr 捕获回调时，要分两种情况：
+                            callback 尚未执行：
+                                外部 shared_ptr 调用 reset 后，强引用计数直接降为 0，对象开始析构。对象析构时销毁 callback 成员，callback 中捕获的 weak_ptr 随后销毁，最后控制块释放。
+                            callback 已经执行，并且 weak_self.lock() 成功：
+                                lock() 会创建一个临时 shared_ptr，使强引用计数加 1。此时即使外部 shared_ptr 调用 reset，回调中的临时 self 仍然保证对象存活。callback 执行结束后，临时 self 销毁，强引用计数降为 0，对象才开始析构。
+                            因此：
+                            weak_ptr 本身不延长对象生命周期，但 lock() 成功后得到的临时 shared_ptr，会保证对象在当前回调执行期间存活。
+                        也可以主清除callback断开
+        循环引用
+            父子关系用shared_ptr,反向引用用weak_ptr,父子关系用 shared_ptr，反向引用用 weak_ptr 
+        线程安全误区，shared_ptr里的强弱引用是原子的，但是shared_ptr本身不是
+            shared_ptr的强弱引用加减用的是原子操作，多线程同时复制/销毁不会算错计数
+            同一个shared_ptr对象被多线程修改，不安全；意思是不是第一个线程在修改shared_ptr的指向，第二个线程读，此时不安全；或者说两个线程都在修改shared_ptr的指向，也不安全
+            指向的对象内容读写不安全
+    6.汇总
+        unique_ptr 和 shared_ptr 区别？
+            独占 vs 共享、有无引用计数、能否复制、shared_ptr内存开销更大
+        为什么优先用 make_unique /make_shared？
+            异常安全、make_shared减少内存分配次数、代码简洁
+        shared_ptr原理
+            有控制块，里面有强弱引用计数，对引用计数操作是原子的
+        weak_ptr 作用
+            打破循环引用
+            观察一个对象是否活着，但是不延长生命周期
+            缓存对象指针，对象被释放了缓存自动失效
+            shared_ptr<int> sp = make_shared<int>(100);
+            weak_ptr<int> wp = sp;
+            if(auto sptr = wp.lock()){//如果成功，sptr是shared_ptr，强引用+1，wp.lock() 是原子操作，检查和提升一步完成
+                cout << *sptr;
+            }else{
+                cout << "已经销毁";  //失败，对象已经释放了
+            }
+        RAII除了智能指针还有什么应用
+            lock_guard /unique_lock（互斥锁）
+            ifstream /ofstream（文件句柄）
+            cudaMalloc封装成RAII类，析构自动cudafree
+            所有需要申请和释放资源的地方都可以用
+            RAII 不仅管内存，所有 "需要配对申请 / 释放" 的资源都适用：内存、文件、锁、GPU 显存、socket、数据库连接……
+
+
+todo:
+    1. 自定义删除器
+    2. std::move 本身并不移动
+    3. shared_ptr 的传参方式
+    4. std::atomic<std::shared_ptr<T>>
+    5. aliasing constructor
+    6. 不要用 use_count() 做并发判断
+    7. expired() 与 lock()
+    8. shared_ptr 从 unique_ptr 接管所有权

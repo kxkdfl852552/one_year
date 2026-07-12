@@ -11,4 +11,8 @@ ps aux
 Repository name 仓库名称
 
 virtual destructor
-Resource Acquisition Is Initialization
+Resource Acquisition Is Initialization  （资源获取即初始化）
+unique 独一无二的
+raw
+Undefined behavior 未定义行为
+constructed 
