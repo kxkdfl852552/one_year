@@ -58,3 +58,66 @@ answers：
             }
         一定要置空原指针，不然会double free
         移动不是让两个对象共享资源，而是新对象接管资源，旧对象放弃资源。
+    6.std::move
+        std::move本身不会移动任何数据
+        std::move(a);表达的是我允许后续代码可以把a当作可以取走资源的对象
+        Tensor b = std::move(a); 真正的移动在Tensor的移动构造里
+        std::move不保证一定移动，在没有移动构造，只有拷贝构造的时候，也能匹配到const Tensor&
+        std::move 只是让移动操作有机会被选中，不保证一定发生移动。
+    7.右值引用变量本身是左值
+        void func(Tensor&& tensor) {
+            Tensor a = tensor;
+        }
+        这里的Tensor&& tensor虽然是右值引用，但是tensor是左值，Tensor a = tensor会调用拷贝构造
+        正确的移动构造为
+            void func(Tensor&& tensor) {
+                Tensor a = std::move(tensor);
+            }
+    8.构造和赋值
+        构造，目标对象还不存在
+            Tensor a(100);
+            Tensor b = a;
+            调用拷贝构造 Tensor(const Tensor& other);
+            Tensor a(100);
+            Tensor b = std::move(a);
+            调用移动构造 Tensor(Tensor&& other);
+        赋值，目标对象已经存在
+            Tensor a(100);
+            Tensor b(200);
+            b = a;
+            调用拷贝赋值  Tensor& operator=(const Tensor& other);
+            Tensor a(100);
+            Tensor b(200);
+            b = std::move(a);
+            调用移动赋值  Tensor& operator=(Tensor&& other);
+    9.拷贝赋值
+        拷贝赋值不仅要复制数据，还要处理当前对象已有的资源
+        要先申请新内存，再处理当前的已有资源，最后替换
+    10.移动赋值
+        检查是否自己移动给自己
+        释放自己原来的资源
+        接管 other 的资源
+        把 other 清空
+        返回 *this
+    11.为什么移动构造里通常加noexcept
+        因为标准容器例如 vector 在扩容迁移元素时，为了异常安全，会优先使用 noexcept 的移动构造。如果移动构造可能抛异常，vector 可能退回使用拷贝构造，避免移动过程中破坏原对象。
+        移动操作通常只是转移指针、句柄等资源所有权，不需要申请新资源，因此一般不会失败，所以适合声明 noexcept。
+        但是如果移动过程中有可能发生异常，就不能强行声明 noexcept，否则异常会导致 std::terminate。
+    12.移动后的对象还能不能使用
+        移动后原对象必须仍然能安全析构、重新赋值、保持有效状态，标准库通常说处于有效但未指定，不要用size去判断
+        实际工程习惯：对象被移动后，只让它析构、重新赋值，或者调用明确支持移动后状态的函数。
+    13.对 const 对象使用 std::move，通常还是拷贝。
+    14.返回对象时怎么写
+        Tensor create_tensor() {
+            Tensor result(100);
+            return result;
+        }
+        编译器通常可以进行 NRVO：
+            函数返回一个局部对象时，按原始逻辑要经历三步：
+                在函数栈上创建局部对象；
+                调用拷贝构造，把对象复制到调用方外层内存；
+                销毁函数内局部对象（调用析构）。
+            大对象（容器、Buffer、自定义类）拷贝开销极大，NRVO 直接把这三步合并，完全消除拷贝。
+        显式 std::move 可能阻止 NRVO。
+        返回局部对象时，一般直接 return result;
+        即使没有发生 NRVO，编译器也通常可以对局部返回变量使用隐式移动
