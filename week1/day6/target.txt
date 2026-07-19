@@ -1,0 +1,181 @@
+questions:
+    1. thread
+    2. mutex
+    3. lock_guard
+    4. condition_variable
+    5. atomic
+    6. 数据竞争
+
+answers:
+    1.thread：创建和管理线程
+        一个进程中可以有多个执行流，每个执行流就是一个线程。
+        thread 基本使用
+            需要头文件 #include <thread>
+            执行普通函数
+                void task(){
+                    cout << "task running" << endl;
+                }
+                int main(){
+                    thread t(task);
+                    t.join();
+                }
+            执行带参数函数
+                void task(int id, string name){
+                    cout << id << "  " << name endl;
+                }
+                int main(){
+                    thread t(task, 1, "decode");
+                    t.join();
+                }
+            传引用参数
+                void int(int& value){
+                    value++;
+                }
+                int main(){
+                    int value = 0;
+                    thread t(add, std::ref(value));
+                    t.join();
+                    cout << value << endl; 
+                }
+            使用lambda创建线程
+                int id = 0;
+                thread([id]() {
+                    cout << "thread id = " << id << endl;
+                })
+                t.join();
+                捕获引用
+                    int id = 0;
+                    thread([&id]() {
+                        id++;
+                        cout << "thread id = " << id << endl;
+                    })
+                    t.join();
+                    被引用对象必须在线程结束前一直存在
+    2.join 表示 当前线程等待线程 t 执行结束
+        joinable可以检查线程是否允许join
+        detach表示线程和 thread 对象分离，线程自行在后台运行
+    3.数据竞争
+        当满足下面三个条件时，会发生数据竞争：
+            两个或更多线程访问同一块内存
+            至少有一个线程进行写操作
+            这些访问之间没有正确同步
+        在 C++ 中，数据竞争属于未定义行为
+    4.mutex是互斥锁
+        需要头文件#include <mutex>
+        mutex mtx;
+        mtx.lock();
+        counter++;
+        mtx.unlock();
+        线程 A 获得锁 → 进入临界区
+        线程 B 请求锁 → 等待
+        线程 A 解锁
+        线程 B 获得锁 → 进入临界区
+        所有访问该共享状态的代码，都必须遵守同一套同步规则。
+        lock_guard管理 std::mutex / std::recursive_mutex 等互斥量，利用栈对象生命周期自动加锁、自动解锁，创建时自动加锁，离开作用域时自动解锁。
+    5.atomic 表示原子变量
+        需要#include <atomic>
+        atomic<int> counter{0};
+        counter++; //整个递增操作会作为一个不可分割的原子操作执行。
+        常见操作
+            atomic<int> counter{0};
+            读取：int value = counter.load();
+            写入：counter.store(10);
+            加一：counter++; 或 counter.fetch_add(1);
+            减一：counter.fetch_sub(1);
+            交换：int old = counter.exchange(100);
+            比较并交换：
+                int expected = 10;
+                counter.compare_exchange_strong(expected, 20);
+                如果 counter == 10：
+                    counter = 20
+                否则：
+                    expected 被更新成 counter 当前值
+        atomic 适合适合保护单个、简单状态
+        atomic 不适合什么
+            有两个变量需要保证它们一起更新，把它们分别改成 atomic并不能保证两条操作作为一个整体执行。
+        atomic 不代表多个操作整体原子
+            atomic<int> counter{0};
+            if (counter < 100) {
+                counter++;
+            }
+            代码仍然有问题，虽然读取和递增分别是原子的，但整体不是原子的。
+            可能发生：
+                线程 A 判断 counter = 99，小于 100
+                线程 B 判断 counter = 99，小于 100
+                线程 A 加一，变成 100
+                线程 B 加一，变成 101
+    6.condition_variable
+        需要头文件：#include <condition_variable>
+        为什么需要 condition_variable
+            假设消费者线程不断检查队列：
+                while(true){
+                    lock_guard<mutex> lock(mtx);
+                    if(!tasks.empty()){
+                        process(tasks.front());
+                    }
+                    task.pop();
+                }
+            当队列为空时，这个线程仍然会不停循环。会白白占用 CPU。
+        condition_variable 让线程在条件不满足时睡眠
+        生产者消费者模式demo
+            #include <condition_variable>
+            #include <iostream>
+            #include <mutex>
+            #include <queue>
+            #include <thread>
+
+            using namespace std;
+
+            queue<int> tasks;
+            mutex mtx;
+            condition_variable cv;
+            bool finished = false;
+
+            void producer() {
+                for (int i = 0; i < 5; ++i) {
+                    {
+                        lock_guard<mutex> lock(mtx);
+                        tasks.push(i);
+                    }
+
+                    cv.notify_one();
+                }
+
+                {
+                    lock_guard<mutex> lock(mtx);
+                    finished = true;
+                }
+
+                cv.notify_all();
+            }
+
+            void consumer() {
+                while (true) {
+                    unique_lock<mutex> lock(mtx);
+
+                    cv.wait(lock, [] {
+                        return !tasks.empty() || finished;
+                    });
+
+                    if (tasks.empty() && finished) {
+                        break;
+                    }
+
+                    int task = tasks.front();
+                    tasks.pop();
+
+                    lock.unlock();
+
+                    cout << "process task: " << task << endl;
+                }
+            }
+
+            int main() {
+                thread producer_thread(producer);
+                thread consumer_thread(consumer);
+
+    producer_thread.join();
+    consumer_thread.join();
+
+    return 0;
+}
