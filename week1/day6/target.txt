@@ -117,65 +117,19 @@ answers:
                 }
             当队列为空时，这个线程仍然会不停循环。会白白占用 CPU。
         condition_variable 让线程在条件不满足时睡眠
-        生产者消费者模式demo
-            #include <condition_variable>
-            #include <iostream>
-            #include <mutex>
-            #include <queue>
-            #include <thread>
-
-            using namespace std;
-
-            queue<int> tasks;
-            mutex mtx;
-            condition_variable cv;
-            bool finished = false;
-
-            void producer() {
-                for (int i = 0; i < 5; ++i) {
-                    {
-                        lock_guard<mutex> lock(mtx);
-                        tasks.push(i);
-                    }
-
-                    cv.notify_one();
-                }
-
-                {
-                    lock_guard<mutex> lock(mtx);
-                    finished = true;
-                }
-
-                cv.notify_all();
-            }
-
-            void consumer() {
-                while (true) {
-                    unique_lock<mutex> lock(mtx);
-
-                    cv.wait(lock, [] {
-                        return !tasks.empty() || finished;
-                    });
-
-                    if (tasks.empty() && finished) {
-                        break;
-                    }
-
-                    int task = tasks.front();
-                    tasks.pop();
-
-                    lock.unlock();
-
-                    cout << "process task: " << task << endl;
-                }
-            }
-
-            int main() {
-                thread producer_thread(producer);
-                thread consumer_thread(consumer);
-
-    producer_thread.join();
-    consumer_thread.join();
-
-    return 0;
-}
+        生产者消费者模式demo condition_variable.cpp
+            cv.wait(lock, []{
+                return !task.empty() || finished;
+            })
+            大致逻辑是：
+                1. 检查条件
+                2. 条件不满足
+                3. 释放 mutex
+                4. 当前线程睡眠
+                5. 收到通知
+                6. 重新获得 mutex
+                7. 再次检查条件
+            为什么 wait 要带条件
+                因为线程可能出现虚假唤醒
+            cv.notify_one(); 唤醒一个等待线程
+            cv.notify_all(); 唤醒所有等待线程
