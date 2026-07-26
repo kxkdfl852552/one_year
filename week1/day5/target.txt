@@ -39,7 +39,7 @@ answers:
                 cout << v.back() << endl;
                 注意：空 vector 调用 front() 或 back() 是未定义行为。应该先判断非空
             获取元素数量
-                cout << v.back() << endl;  //也需要用v.empty()判断
+                cout << v.size() << endl;  //也需要用v.empty()判断
             遍历 vector
                 for (int x : v) {
                     cout << x << " ";  // 这里 x 是每个元素的副本，修改 x 不会修改原来的元素。
@@ -74,8 +74,8 @@ answers:
                     释放旧内存
                     更新内部指针
                 扩容后原来的地址失效，扩容前的裸指针可能成为悬空指针
-            reserver和resize
-                reserver 
+            reserve和resize
+                reserve 
                     vector<int> v;
                     v.reserve(100); //提前申请至少能容纳xx个元素的空间
                     此时size为0，capacity至少为100
@@ -91,14 +91,14 @@ answers:
                 扩容导致引用和指针失效
                 边遍历边删除
                     下面的写法有问题
-                    for(int it = v.begin(); it != v.end(); ++it){
+                    for(auto it = v.begin(); it != v.end(); ++it){
                         if(*it == 3){
                             v.erase(it);
                         }
                     }
                     erase后当前迭代器失效
                     正确写法
-                    for(int it = v.begin(); it != v.end(); ++it){
+                    for(auto it = v.begin(); it != v.end(); ++it){
                         if(*it == 3){
                             it = v.erase(it);
                         }else{
