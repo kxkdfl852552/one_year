@@ -1,0 +1,66 @@
+## 第二周第一天：CMake 工程能力加强
+
+### 1. cmake -S . -B build 是什么意思？
+
+`cmake -S . -B build` 表示使用当前目录作为源码目录，使用 `build` 目录作为构建目录。
+
+`-S .` 指定源码目录，里面有 `CMakeLists.txt`。
+`-B build` 指定构建目录，CMake 会把 Makefile、缓存文件和中间文件生成到这里。
+
+这样可以让源码文件和编译产物分开。
+
+### 2. CMAKE_SOURCE_DIR 和 CMAKE_BINARY_DIR 区别是什么？
+
+`CMAKE_SOURCE_DIR` 是顶层源码目录，也就是顶层 `CMakeLists.txt` 所在目录。
+
+`CMAKE_BINARY_DIR` 是顶层构建目录，也就是执行 `cmake -B` 指定的目录。
+
+例如：
+
+源码目录：
+
+`~/gpu_job_prepare/linux_debug/cmake_lab`
+
+构建目录：
+
+`~/gpu_job_prepare/linux_debug/cmake_lab/build`
+
+### 3. target_compile_options 是干什么的？
+
+`target_compile_options` 用来给某个目标添加编译选项。
+
+例如：
+
+`-Wall`
+`-Wextra`
+`-Wpedantic`
+
+这些选项可以让编译器输出更多警告，帮助提前发现代码问题。
+
+它是 target 级别的配置，比全局修改编译参数更清晰。
+
+### 4. target_link_libraries 为什么要用 Threads::Threads？
+
+因为程序使用了 `std::thread`，底层需要链接系统线程库。
+
+`find_package(Threads REQUIRED)` 会让 CMake 查找当前系统的线程支持。
+
+`Threads::Threads` 是 CMake 提供的线程库目标，它会自动携带正确的编译和链接参数。
+
+这样比手写 `-pthread` 更标准、更可移植。
+
+### 5. Debug 和 Release 有什么区别？
+
+Debug 用于调试，通常包含调试信息，优化较少，适合配合 gdb 查看变量、调用栈和断点。
+
+Release 用于发布或性能测试，通常开启优化，程序运行更快，但调试信息较少，调试不方便。
+
+常见命令：
+
+Debug：
+
+`cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug`
+
+Release：
+
+`cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release`
